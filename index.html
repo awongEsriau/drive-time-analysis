@@ -724,12 +724,26 @@ require([
         throw new Error("No service area polygons returned.");
       }
 
-      // Sort returned polygons by area (largest first = longest drive time)
-      const polys = result.serviceAreaPolygons.features.slice().sort((a, b) => {
-        const aA = Math.abs(geometryEngine.geodesicArea(a.geometry, "square-kilometers"));
-        const bA = Math.abs(geometryEngine.geodesicArea(b.geometry, "square-kilometers"));
-        return bA - aA;
-      });
+      // ── Map each returned polygon to its drive time ──────────
+      // Use the ToBreak attribute from the SA result (reliable for any
+      // polygon count). Fall back to nearest-minutes match if missing.
+      const features = result.serviceAreaPolygons.features;
+      const sortedMinutes = [...minutes].sort((a, b) => a - b);
+
+      const polys = features.map(feat => {
+        const geom    = feat.geometry;
+        const toBreak = feat.attributes
+          ? (feat.attributes.ToBreak ?? feat.attributes.ToBreak_1 ?? null)
+          : null;
+        // Match to the closest requested drive time
+        const min = toBreak != null
+          ? sortedMinutes.reduce((p, c) => Math.abs(c - toBreak) < Math.abs(p - toBreak) ? c : p)
+          : sortedMinutes[0];
+        return { geom, min };
+      }).filter(p => p.geom != null); // drop any null geometries
+
+      // Assign visual opacity: shortest time = most opaque outline, largest = lightest fill
+      polys.sort((a, b) => a.min - b.min); // ascending for opacity calc
 
       setLoading(true, "Estimating population…");
 
@@ -741,18 +755,17 @@ require([
           size: 12, outline: { color: [255,255,255,0.85], width: 2 }
         }),
         attributes: { storeId },
-        popupTemplate: new PopupTemplate({ title: storeName, content: `Drive times: ${minutes.join(", ")} min` })
+        popupTemplate: new PopupTemplate({ title: storeName, content: `Drive times: ${sortedMinutes.join(", ")} min` })
       });
       pointLayer.add(pointGraphic);
 
       // Build rings
       const rings = [];
       for (let i = 0; i < polys.length; i++) {
-        const ring      = polys[i].geometry;
-        const min       = minutes[polys.length - 1 - i]; // largest poly → largest minutes
-        const opacity   = 0.08 + (0.22 * (i / Math.max(polys.length - 1, 1)));
-        const ringId    = storeId + "_r" + min;
-        const pop       = await estimatePopulation(ring);
+        const { geom: ring, min } = polys[i];
+        const opacity = 0.22 - (0.12 * (i / Math.max(polys.length - 1, 1)));
+        const ringId  = storeId + "_r" + min;
+        const pop     = await estimatePopulation(ring);
 
         const polygonGraphic = new Graphic({
           geometry: ring,
@@ -772,6 +785,11 @@ require([
 
       stores.push({ storeId, name: storeName, color, point: pendingPoint, pointGraphic, rings });
       pendingPoint = null;
+
+      // Reset filters so newly added rings are always visible
+      filterMinutes.clear();
+      filterStore = "";
+      filterStoreEl.value = "";
 
       setLoading(false);
       statusBadge.textContent = "Click map to place store";
@@ -928,22 +946,26 @@ require([
     const rows = [];
     stores.forEach(store => {
       store.rings.forEach(ring => {
-        if (!ring.visible) return;
-        const { overlapPop, overlapPct } = computeOverlap(store, ring);
-        const uniquePop = Math.max(0, (ring.population || 0) - overlapPop);
-        const areaSqKm  = Math.abs(geometryEngine.geodesicArea(ring.ring, "square-kilometers"));
-        rows.push({
-          storeId:    store.storeId,
-          ringId:     ring.ringId,
-          color:      store.color,
-          storeName:  store.name,
-          minutes:    ring.minutes,
-          population: ring.population || 0,
-          uniquePop,
-          overlapPop,
-          overlapPct,
-          areaSqKm
-        });
+        if (!ring.visible || !ring.ring || ring.minutes == null) return;
+        try {
+          const { overlapPop, overlapPct } = computeOverlap(store, ring);
+          const uniquePop = Math.max(0, (ring.population || 0) - overlapPop);
+          const areaSqKm  = Math.abs(geometryEngine.geodesicArea(ring.ring, "square-kilometers")) || 0;
+          rows.push({
+            storeId:    store.storeId,
+            ringId:     ring.ringId,
+            color:      store.color,
+            storeName:  store.name,
+            minutes:    ring.minutes,
+            population: ring.population || 0,
+            uniquePop,
+            overlapPop,
+            overlapPct,
+            areaSqKm
+          });
+        } catch (e) {
+          console.warn("Skipped ring in report due to geometry error:", ring.ringId, e);
+        }
       });
     });
     return rows;
