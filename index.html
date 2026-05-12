@@ -794,7 +794,9 @@ require([
   // ── Population estimate ─────────────────────────────────────
   async function estimatePopulation(polygon) {
     try {
-      const params = new URLSearchParams({
+      // Use POST so the polygon geometry goes in the request body,
+      // avoiding "URL too long" errors for detailed polygons.
+      const body = new URLSearchParams({
         f: "json",
         geometry: JSON.stringify(polygon.toJSON()),
         geometryType: "esriGeometryPolygon",
@@ -803,12 +805,17 @@ require([
         returnGeometry: false,
         inSR: polygon.spatialReference ? polygon.spatialReference.wkid : 3857
       });
-      const resp = await fetch(POP_URL + "/query?" + params);
+      const resp = await fetch(POP_URL + "/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString()
+      });
       const data = await resp.json();
       if (data.features && data.features.length > 0) {
         return data.features.reduce((s,f) => s + (f.attributes.TOTPOP_CY || 0), 0);
       }
     } catch(_) {}
+    // Fallback: area-based estimate using ~36 people/km²
     return Math.abs(geometryEngine.geodesicArea(polygon, "square-kilometers")) * 36;
   }
 
