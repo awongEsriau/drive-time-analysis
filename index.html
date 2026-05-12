@@ -56,17 +56,35 @@
     #main { display: flex; flex: 1; overflow: hidden; }
 
     /* ── Map ───────────────────────────────────────────── */
-    #viewDiv { flex: 1; position: relative; cursor: crosshair; }
+    #viewDiv { flex: 1; position: relative; cursor: crosshair; min-width: 200px; }
+
+    /* ── Splitter ──────────────────────────────────────── */
+    #splitter {
+      width: 5px;
+      background: #252840;
+      cursor: col-resize;
+      flex-shrink: 0;
+      position: relative;
+      transition: background .15s;
+      z-index: 5;
+    }
+    #splitter:hover, #splitter.dragging { background: #4fc3f7; }
+    #splitter::after {
+      content: "";
+      position: absolute;
+      inset: 0 -4px;  /* widen hit area without widening visual */
+    }
 
     /* ── Right panel ───────────────────────────────────── */
     #panel {
       width: 420px;
       background: #1a1d2e;
-      border-left: 1px solid #252840;
       display: flex;
       flex-direction: column;
       overflow: hidden;
       flex-shrink: 0;
+      min-width: 280px;
+      max-width: 70vw;
     }
 
     /* ── Panel tabs ────────────────────────────────────── */
@@ -389,7 +407,7 @@
 <!-- Main -->
 <div id="main">
   <div id="viewDiv"></div>
-
+  <div id="splitter"></div>
   <div id="panel">
     <!-- Tabs -->
     <div id="panel-tabs">
@@ -1056,6 +1074,49 @@ require([
     buildDtChips();
     showToast("Ready — click the map to place a store", "info", 4000);
   });
+
+  // ── Splitter drag ──────────────────────────────────────────
+  (function () {
+    const splitter  = document.getElementById("splitter");
+    const panel     = document.getElementById("panel");
+    const container = document.getElementById("main");
+    let dragging = false, startX = 0, startW = 0;
+
+    splitter.addEventListener("mousedown", function (e) {
+      dragging  = true;
+      startX    = e.clientX;
+      startW    = panel.getBoundingClientRect().width;
+      splitter.classList.add("dragging");
+      document.body.style.cursor    = "col-resize";
+      document.body.style.userSelect = "none";
+      // Overlay to keep cursor correct while dragging over the map iframe
+      const shield = document.createElement("div");
+      shield.id = "drag-shield";
+      Object.assign(shield.style, {
+        position: "fixed", inset: "0", zIndex: "9999", cursor: "col-resize"
+      });
+      document.body.appendChild(shield);
+      e.preventDefault();
+    });
+
+    document.addEventListener("mousemove", function (e) {
+      if (!dragging) return;
+      const delta   = startX - e.clientX;          // drag left = panel grows
+      const maxW    = container.getBoundingClientRect().width - 200;
+      const newW    = Math.min(maxW, Math.max(280, startW + delta));
+      panel.style.width = newW + "px";
+    });
+
+    document.addEventListener("mouseup", function () {
+      if (!dragging) return;
+      dragging = false;
+      splitter.classList.remove("dragging");
+      document.body.style.cursor     = "";
+      document.body.style.userSelect = "";
+      const shield = document.getElementById("drag-shield");
+      if (shield) shield.remove();
+    });
+  }());
 });
 </script>
 </body>
