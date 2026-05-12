@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drive Time Analysis</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/dark/main.css" />
+  <script src="https://js.arcgis.com/4.30/"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: #12131a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Top bar ───────────────────────────────────────── */
+    #topbar {
+      background: #1a1d2e;
+      border-bottom: 1px solid #252840;
+      padding: 7px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+    #topbar h1 { font-size: 14px; font-weight: 700; color: #4fc3f7; flex: 1; letter-spacing: .4px; }
+    .badge {
+      background: #1e2235;
+      border: 1px solid #4fc3f7;
+      color: #4fc3f7;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+    #btn-clear {
+      background: #7b1fa2;
+      color: #fff;
+      border: none;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    #btn-clear:hover { background: #9c27b0; }
+    #btn-clear:disabled { background: #333; cursor: not-allowed; color: #666; }
+
+    /* ── Main layout ───────────────────────────────────── */
+    #main { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Map ───────────────────────────────────────────── */
+    #viewDiv { flex: 1; position: relative; cursor: crosshair; }
+
+    /* ── Right panel ───────────────────────────────────── */
+    #panel {
+      width: 420px;
+      background: #1a1d2e;
+      border-left: 1px solid #252840;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    /* ── Panel tabs ────────────────────────────────────── */
+    #panel-tabs {
+      display: flex;
+      border-bottom: 1px solid #252840;
+      flex-shrink: 0;
+    }
+    .ptab {
+      flex: 1;
+      padding: 8px 0;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .2s, border-color .2s;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+    }
+    .ptab:hover { color: #aaa; }
+    .ptab.active { color: #4fc3f7; border-bottom-color: #4fc3f7; }
+
+    .tab-content { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .tab-content.active { display: flex; }
+
+    /* ── Stores tab ────────────────────────────────────── */
+    #store-list { flex: 1; overflow-y: auto; }
+    #store-list::-webkit-scrollbar { width: 3px; }
+    #store-list::-webkit-scrollbar-thumb { background: #252840; }
+
+    .store-item {
+      padding: 9px 14px;
+      border-bottom: 1px solid #1e2235;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .store-item:hover { background: #1e2235; }
+    .store-item.active { background: #1e2a40; }
+
+    .store-color-block {
+      width: 8px;
+      border-radius: 2px;
+      align-self: stretch;
+      flex-shrink: 0;
+    }
+    .store-meta-block { flex: 1; min-width: 0; }
+    .store-name { font-size: 12px; font-weight: 600; color: #e0e0e0; }
+    .store-sub { font-size: 10px; color: #666; margin-top: 2px; }
+
+    .ring-chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+    .ring-chip {
+      font-size: 9px;
+      padding: 1px 6px;
+      border-radius: 8px;
+      border: 1px solid;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .ring-chip.hidden-ring { opacity: .35; }
+
+    /* ── Report tab ────────────────────────────────────── */
+    #report-tab { overflow: hidden; }
+
+    /* Filter bar */
+    #filter-bar {
+      padding: 10px 12px;
+      border-bottom: 1px solid #252840;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .filter-row { display: flex; align-items: center; gap: 8px; }
+    .filter-row label { font-size: 10px; color: #888; min-width: 70px; }
+
+    #filter-store {
+      flex: 1;
+      background: #12131a;
+      border: 1px solid #252840;
+      color: #e0e0e0;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      outline: none;
+    }
+    #filter-store:focus { border-color: #4fc3f7; }
+
+    #filter-times { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+    .ft-chip {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #12131a;
+      border: 1px solid #333;
+      color: #888;
+      cursor: pointer;
+      transition: background .15s, color .15s, border-color .15s;
+      user-select: none;
+    }
+    .ft-chip.on { background: #0d47a1; border-color: #4fc3f7; color: #4fc3f7; }
+
+    /* Sort / table */
+    #report-wrap { flex: 1; overflow: auto; }
+    #report-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+    #report-wrap::-webkit-scrollbar-thumb { background: #252840; border-radius: 2px; }
+
+    table#report-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    #report-table thead th {
+      background: #12131a;
+      color: #888;
+      padding: 7px 8px;
+      text-align: left;
+      white-space: nowrap;
+      cursor: pointer;
+      user-select: none;
+      border-bottom: 1px solid #252840;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    #report-table thead th:hover { color: #ccc; }
+    #report-table thead th.sort-asc::after  { content: " ▲"; color: #4fc3f7; font-size: 8px; }
+    #report-table thead th.sort-desc::after { content: " ▼"; color: #4fc3f7; font-size: 8px; }
+
+    #report-table tbody tr {
+      border-bottom: 1px solid #1e2235;
+      cursor: pointer;
+      transition: background .12s;
+    }
+    #report-table tbody tr:hover { background: #1e2235; }
+    #report-table tbody tr.active-row { background: #1e2a40; }
+
+    #report-table td {
+      padding: 7px 8px;
+      white-space: nowrap;
+      color: #ccc;
+    }
+    #report-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    #report-table td.center { text-align: center; }
+
+    .swatch {
+      display: inline-block;
+      width: 10px; height: 10px;
+      border-radius: 2px;
+      vertical-align: middle;
+      margin-right: 4px;
+      flex-shrink: 0;
+    }
+
+    .pct-bar-wrap { display: flex; align-items: center; gap: 4px; }
+    .pct-bar { height: 4px; border-radius: 2px; min-width: 2px; }
+    .pct-val { min-width: 30px; text-align: right; }
+    .pct-val.warn { color: #ffa726; }
+    .pct-val.ok   { color: #66bb6a; }
+
+    #report-empty {
+      text-align: center;
+      padding: 30px 20px;
+      font-size: 12px;
+      color: #444;
+    }
+
+    /* ── Modal ─────────────────────────────────────────── */
+    #modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity .2s;
+    }
+    #modal-overlay.visible { opacity: 1; pointer-events: auto; }
+
+    #modal {
+      background: #1a1d2e;
+      border: 1px solid #252840;
+      border-radius: 10px;
+      padding: 22px 22px 18px;
+      width: 360px;
+      box-shadow: 0 12px 40px rgba(0,0,0,.6);
+    }
+    #modal h3 { font-size: 14px; font-weight: 700; color: #4fc3f7; margin-bottom: 4px; }
+    #modal .modal-sub { font-size: 11px; color: #666; margin-bottom: 16px; }
+
+    .mfield { margin-bottom: 14px; }
+    .mfield label { display: block; font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    .mfield input[type=text] {
+      width: 100%;
+      background: #12131a;
+      border: 1px solid #252840;
+      color: #e0e0e0;
+      padding: 7px 10px;
+      border-radius: 5px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .mfield input[type=text]:focus { border-color: #4fc3f7; }
+
+    /* Drive time chips in modal */
+    #dt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .dt-chip {
+      padding: 4px 12px;
+      border-radius: 16px;
+      border: 1px solid #333;
+      background: #12131a;
+      color: #888;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all .15s;
+      user-select: none;
+    }
+    .dt-chip:hover { border-color: #555; color: #ccc; }
+    .dt-chip.selected { background: #0d47a1; border-color: #4fc3f7; color: #4fc3f7; font-weight: 600; }
+
+    .custom-time-row {
+      display: flex; gap: 6px; align-items: center;
+      margin-top: 6px;
+    }
+    .custom-time-row input[type=number] {
+      width: 80px;
+      background: #12131a;
+      border: 1px solid #252840;
+      color: #e0e0e0;
+      padding: 5px 8px;
+      border-radius: 5px;
+      font-size: 12px;
+      outline: none;
+    }
+    .custom-time-row input[type=number]:focus { border-color: #4fc3f7; }
+    .btn-add-custom {
+      background: #252840;
+      border: 1px solid #333;
+      color: #aaa;
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .btn-add-custom:hover { background: #2e3354; color: #e0e0e0; }
+
+    #selected-times-display {
+      font-size: 10px;
+      color: #4fc3f7;
+      margin-top: 6px;
+      min-height: 14px;
+    }
+
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+    .btn-secondary {
+      background: transparent; border: 1px solid #333; color: #888;
+      padding: 7px 16px; border-radius: 5px; font-size: 12px; cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-secondary:hover { border-color: #666; color: #ccc; }
+    .btn-primary {
+      background: #4fc3f7; border: none; color: #0d1117;
+      padding: 7px 20px; border-radius: 5px; font-size: 12px; font-weight: 700;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-primary:hover { background: #81d4fa; }
+    .btn-primary:disabled { background: #333; color: #555; cursor: not-allowed; }
+
+    /* ── Loading ────────────────────────────────────────── */
+    #loading {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.5);
+      z-index: 900;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    #loading.visible { opacity: 1; pointer-events: auto; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #1e2235;
+      border-top-color: #4fc3f7;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    #loading p { font-size: 12px; color: #aaa; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ──────────────────────────────────────────── */
+    #toast {
+      position: fixed; bottom: 16px; left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: #b71c1c; color: #fff;
+      padding: 8px 16px; border-radius: 5px;
+      font-size: 11px; z-index: 2000;
+      opacity: 0; transition: opacity .25s, transform .25s;
+      pointer-events: none; max-width: 90vw; text-align: center;
+    }
+    #toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+    #toast.info { background: #0d2a4a; border: 1px solid #4fc3f7; }
+  </style>
+</head>
+<body>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>&#9679; Drive Time Analysis</h1>
+  <span class="badge" id="status-badge">Click map to place store</span>
+  <button id="btn-clear" disabled>Clear All</button>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="viewDiv"></div>
+
+  <div id="panel">
+    <!-- Tabs -->
+    <div id="panel-tabs">
+      <div class="ptab active" data-tab="stores">Stores</div>
+      <div class="ptab" data-tab="report">Report</div>
+    </div>
+
+    <!-- STORES TAB -->
+    <div id="tab-stores" class="tab-content active">
+      <div style="padding:10px 14px 8px; border-bottom:1px solid #252840; flex-shrink:0;">
+        <span style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.5px;">
+          <span id="store-count">0</span> stores &nbsp;·&nbsp; <span id="ring-count">0</span> service areas
+        </span>
+      </div>
+      <div id="store-list"></div>
+      <div id="store-empty" style="text-align:center;padding:30px 20px;font-size:12px;color:#444;">
+        No stores yet — click the map to begin
+      </div>
+    </div>
+
+    <!-- REPORT TAB -->
+    <div id="tab-report" class="tab-content">
+      <!-- Filter bar -->
+      <div id="filter-bar">
+        <div class="filter-row">
+          <label>Store</label>
+          <input id="filter-store" type="text" placeholder="Search store name…" />
+        </div>
+        <div class="filter-row">
+          <label>Drive time</label>
+          <div id="filter-times"></div>
+        </div>
+        <div class="filter-row" style="justify-content:flex-end;gap:8px;">
+          <span style="font-size:10px;color:#555;" id="visible-count">0 rows</span>
+          <span style="font-size:10px;color:#4fc3f7;cursor:pointer;" id="btn-reset-filter">Reset filters</span>
+        </div>
+      </div>
+
+      <div id="report-wrap">
+        <div id="report-empty">No data — place stores on the map first</div>
+        <table id="report-table" style="display:none;">
+          <thead>
+            <tr>
+              <th data-col="storeName">Store</th>
+              <th data-col="minutes" class="sort-asc">Time</th>
+              <th data-col="population">Total Pop</th>
+              <th data-col="uniquePop">Unique Pop</th>
+              <th data-col="overlapPop">Overlap Pop</th>
+              <th data-col="overlapPct">Overlap %</th>
+              <th data-col="areaSqKm">Area km²</th>
+            </tr>
+          </thead>
+          <tbody id="report-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal-overlay">
+  <div id="modal">
+    <h3>New Store</h3>
+    <p class="modal-sub">Set the name and one or more drive time rings for this location.</p>
+
+    <div class="mfield">
+      <label>Store name</label>
+      <input id="store-name-input" type="text" placeholder="e.g. Store A" maxlength="40" />
+    </div>
+
+    <div class="mfield">
+      <label>Drive times — select one or more</label>
+      <div id="dt-chips"></div>
+      <div class="custom-time-row">
+        <input id="custom-time-input" type="number" min="1" max="120" placeholder="Custom" />
+        <span style="font-size:11px;color:#666;">min</span>
+        <button class="btn-add-custom" id="btn-add-custom">+ Add</button>
+      </div>
+      <div id="selected-times-display"></div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-cancel">Cancel</button>
+      <button class="btn-primary" id="btn-generate" disabled>Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Loading -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Calculating service areas…</p>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+require(["esri/config"], function(esriConfig) {
+  esriConfig.apiKey = "AAPTaHHPFVcZzyd20cSKD5NYIhg..Hx9cGTM_qPlKgwcn5a6wLqw0V56zmiSrqKGOqNhU_i22AoJwHY8f39-Czw5Pr-mW-rzB2TJMIcr4nHzeHrF4QZ-cnmgVFzJNPYSjGfKrLKrdT2ve_D1YT4dWIlhD9wifM2yQPcSkCrIUqqDRRwDOQ370QVjZku-YuqKdZuIfMxXc7Ch6j9oxxE0NPeXV64wdAfdEQWUoCNmDhhhVHQT8SNeQbw4tUT8XhxsSGKgDZC2XmV_fZ76Li-NR96-0AT1_qug01iZ0";
+});
+
+require([
+  "esri/Map",
+  "esri/views/MapView",
+  "esri/Graphic",
+  "esri/layers/GraphicsLayer",
+  "esri/rest/serviceArea",
+  "esri/rest/support/ServiceAreaParameters",
+  "esri/rest/support/FeatureSet",
+  "esri/symbols/SimpleMarkerSymbol",
+  "esri/symbols/SimpleFillSymbol",
+  "esri/symbols/SimpleLineSymbol",
+  "esri/geometry/geometryEngine",
+  "esri/PopupTemplate",
+  "esri/widgets/Home",
+  "esri/widgets/ScaleBar"
+], function (
+  Map, MapView, Graphic, GraphicsLayer,
+  serviceArea, ServiceAreaParameters, FeatureSet,
+  SimpleMarkerSymbol, SimpleFillSymbol, SimpleLineSymbol,
+  geometryEngine, PopupTemplate, Home, ScaleBar
+) {
+
+  // ── Constants ─────────────────────────────────────────────
+  const SA_URL  = "https://route.arcgis.com/arcgis/rest/services/World/ServiceAreas/NAServer/ServiceArea_World";
+  const POP_URL = "https://demographics1.arcgis.com/arcgis/rest/services/USA_Demographics_and_Boundaries_2022/MapServer/10";
+
+  const PALETTE = [
+    [79,195,247],[255,167,38],[102,187,106],[236,64,122],
+    [171,71,188],[255,213,79],[38,166,154],[255,112,67],
+    [129,199,132],[240,98,146],[100,181,246],[255,241,118]
+  ];
+
+  const PRESET_TIMES = [5, 10, 15, 20, 30, 45, 60];
+
+  // ── State ──────────────────────────────────────────────────
+  // stores[]: { storeId, name, color[r,g,b], point, pointGraphic, rings[] }
+  // rings[]:  { ringId, minutes, ring(geometry), polygonGraphic, population, visible }
+  let stores       = [];
+  let pendingPoint = null;
+  let selectedRingId = null;
+
+  // Sort state
+  let sortCol = "minutes", sortDir = 1; // 1=asc, -1=desc
+
+  // Filter state
+  let filterStore    = "";
+  let filterMinutes  = new Set(); // empty = show all
+
+  // ── Map ────────────────────────────────────────────────────
+  const polygonLayer = new GraphicsLayer({ title: "Service Areas" });
+  const pointLayer   = new GraphicsLayer({ title: "Store Points" });
+
+  const map = new Map({ basemap: "dark-gray-vector", layers: [polygonLayer, pointLayer] });
+
+  const view = new MapView({
+    container: "viewDiv", map,
+    center: [153.0251, -27.4698], zoom: 11,
+    ui: { components: ["zoom", "attribution"] }
+  });
+  view.ui.add(new Home({ view }), "top-left");
+  view.ui.add(new ScaleBar({ view, unit: "dual" }), "bottom-left");
+
+  // ── UI refs ────────────────────────────────────────────────
+  const overlay       = document.getElementById("modal-overlay");
+  const nameInput     = document.getElementById("store-name-input");
+  const dtChipsEl     = document.getElementById("dt-chips");
+  const customTimeIn  = document.getElementById("custom-time-input");
+  const btnAddCustom  = document.getElementById("btn-add-custom");
+  const selDisplay    = document.getElementById("selected-times-display");
+  const btnGenerate   = document.getElementById("btn-generate");
+  const btnCancel     = document.getElementById("btn-cancel");
+  const btnClear      = document.getElementById("btn-clear");
+  const loadingEl     = document.getElementById("loading");
+  const loadingMsg    = document.getElementById("loading-msg");
+  const toastEl       = document.getElementById("toast");
+  const statusBadge   = document.getElementById("status-badge");
+  const storeListEl   = document.getElementById("store-list");
+  const storeEmptyEl  = document.getElementById("store-empty");
+  const storeCountEl  = document.getElementById("store-count");
+  const ringCountEl   = document.getElementById("ring-count");
+  const filterStoreEl = document.getElementById("filter-store");
+  const filterTimesEl = document.getElementById("filter-times");
+  const reportWrap    = document.getElementById("report-wrap");
+  const reportEmpty   = document.getElementById("report-empty");
+  const reportTable   = document.getElementById("report-table");
+  const reportBody    = document.getElementById("report-body");
+  const visibleCount  = document.getElementById("visible-count");
+
+  // ── Helpers ────────────────────────────────────────────────
+  function rgb([r,g,b], a=1) { return `rgba(${r},${g},${b},${a})`; }
+  function hex([r,g,b]) { return "#" + [r,g,b].map(v=>v.toString(16).padStart(2,"0")).join(""); }
+
+  function fmtNum(n) {
+    if (n == null) return "—";
+    if (n >= 1e6)  return (n/1e6).toFixed(1) + "M";
+    if (n >= 1e3)  return (n/1e3).toFixed(1) + "K";
+    return Math.round(n).toLocaleString();
+  }
+  function fmtPct(n) { return n == null ? "—" : Math.round(n) + "%"; }
+
+  function showToast(msg, type="error", ms=4000) {
+    toastEl.textContent = msg;
+    toastEl.className = "visible" + (type==="info" ? " info" : "");
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => { toastEl.className = ""; }, ms);
+  }
+  function setLoading(on, msg="Calculating service areas…") {
+    loadingMsg.textContent = msg;
+    loadingEl.classList.toggle("visible", on);
+  }
+  function nextColor() { return PALETTE[stores.length % PALETTE.length]; }
+
+  // ── Tabs ───────────────────────────────────────────────────
+  document.querySelectorAll(".ptab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".ptab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById("tab-" + tab.dataset.tab).classList.add("active");
+    });
+  });
+
+  // ── Drive-time chip selector (modal) ───────────────────────
+  let selectedTimes = new Set();
+
+  function buildDtChips() {
+    dtChipsEl.innerHTML = "";
+    const times = [...new Set([...PRESET_TIMES, ...selectedTimes])].sort((a,b)=>a-b);
+    times.forEach(t => {
+      const chip = document.createElement("div");
+      chip.className = "dt-chip" + (selectedTimes.has(t) ? " selected" : "");
+      chip.textContent = t + " min";
+      chip.addEventListener("click", () => {
+        if (selectedTimes.has(t)) selectedTimes.delete(t);
+        else selectedTimes.add(t);
+        buildDtChips();
+        updateSelDisplay();
+      });
+      dtChipsEl.appendChild(chip);
+    });
+    btnGenerate.disabled = selectedTimes.size === 0;
+  }
+
+  function updateSelDisplay() {
+    const arr = [...selectedTimes].sort((a,b)=>a-b);
+    selDisplay.textContent = arr.length ? "Selected: " + arr.map(t=>t+"min").join(", ") : "";
+    btnGenerate.disabled = arr.length === 0;
+  }
+
+  btnAddCustom.addEventListener("click", () => {
+    const v = parseInt(customTimeIn.value, 10);
+    if (!v || v < 1 || v > 120) { showToast("Enter a value between 1–120 min", "error", 2500); return; }
+    selectedTimes.add(v);
+    customTimeIn.value = "";
+    buildDtChips();
+    updateSelDisplay();
+  });
+  customTimeIn.addEventListener("keydown", e => { if (e.key === "Enter") btnAddCustom.click(); });
+
+  // ── Map click ──────────────────────────────────────────────
+  view.on("click", () => {});
+  view.on("click", function(evt) {
+    if (overlay.classList.contains("visible")) return;
+    pendingPoint = evt.mapPoint;
+
+    // Auto-name
+    const letter = String.fromCharCode(64 + stores.length + 1);
+    nameInput.value = "Store " + (stores.length < 26 ? letter : stores.length + 1);
+
+    // Reset chip state
+    selectedTimes = new Set([10]); // default 10 min pre-selected
+    buildDtChips();
+    updateSelDisplay();
+
+    overlay.classList.add("visible");
+    setTimeout(() => nameInput.focus(), 50);
+  });
+
+  btnCancel.addEventListener("click", () => {
+    overlay.classList.remove("visible");
+    pendingPoint = null;
+  });
+
+  // ── Generate service areas ─────────────────────────────────
+  btnGenerate.addEventListener("click", generateServiceAreas);
+  nameInput.addEventListener("keydown", e => { if (e.key === "Enter") generateServiceAreas(); });
+
+  async function generateServiceAreas() {
+    if (!pendingPoint || selectedTimes.size === 0) return;
+
+    const storeName  = nameInput.value.trim() || ("Store " + (stores.length + 1));
+    const minutes    = [...selectedTimes].sort((a,b)=>a-b);
+    const color      = nextColor();
+    const storeId    = "s_" + Date.now();
+
+    overlay.classList.remove("visible");
+    setLoading(true, `Generating ${minutes.length} service area${minutes.length>1?"s":""}…`);
+    statusBadge.textContent = "Generating…";
+
+    try {
+      // Request all breaks at once in one SA call
+      const pointG = new Graphic({ geometry: pendingPoint });
+      const params = new ServiceAreaParameters({
+        facilities: new FeatureSet({ features: [pointG] }),
+        defaultBreaks: minutes,
+        trimOuterPolygon: true,
+        outSpatialReference: view.spatialReference
+      });
+
+      const result = await serviceArea.solve(SA_URL, params);
+      if (!result.serviceAreaPolygons || result.serviceAreaPolygons.features.length === 0) {
+        throw new Error("No service area polygons returned.");
+      }
+
+      // Sort returned polygons by area (largest first = longest drive time)
+      const polys = result.serviceAreaPolygons.features.slice().sort((a, b) => {
+        const aA = Math.abs(geometryEngine.geodesicArea(a.geometry, "square-kilometers"));
+        const bA = Math.abs(geometryEngine.geodesicArea(b.geometry, "square-kilometers"));
+        return bA - aA;
+      });
+
+      setLoading(true, "Estimating population…");
+
+      // Point graphic (one per store)
+      const pointGraphic = new Graphic({
+        geometry: pendingPoint,
+        symbol: new SimpleMarkerSymbol({
+          style: "circle", color: rgb(color),
+          size: 12, outline: { color: [255,255,255,0.85], width: 2 }
+        }),
+        attributes: { storeId },
+        popupTemplate: new PopupTemplate({ title: storeName, content: `Drive times: ${minutes.join(", ")} min` })
+      });
+      pointLayer.add(pointGraphic);
+
+      // Build rings
+      const rings = [];
+      for (let i = 0; i < polys.length; i++) {
+        const ring      = polys[i].geometry;
+        const min       = minutes[polys.length - 1 - i]; // largest poly → largest minutes
+        const opacity   = 0.08 + (0.22 * (i / Math.max(polys.length - 1, 1)));
+        const ringId    = storeId + "_r" + min;
+        const pop       = await estimatePopulation(ring);
+
+        const polygonGraphic = new Graphic({
+          geometry: ring,
+          symbol: new SimpleFillSymbol({
+            color: rgb(color, opacity),
+            outline: new SimpleLineSymbol({ color: rgb(color, 0.85), width: 1.5 })
+          }),
+          attributes: { storeId, ringId },
+          popupTemplate: new PopupTemplate({
+            title: `${storeName} – ${min} min`,
+            content: `Covered population: ${fmtNum(pop)}`
+          })
+        });
+        polygonLayer.add(polygonGraphic);
+        rings.push({ ringId, minutes: min, ring, polygonGraphic, population: pop, visible: true });
+      }
+
+      stores.push({ storeId, name: storeName, color, point: pendingPoint, pointGraphic, rings });
+      pendingPoint = null;
+
+      setLoading(false);
+      statusBadge.textContent = "Click map to place store";
+      renderStoreList();
+      rebuildFilterTimeChips();
+      renderReport();
+      btnClear.disabled = false;
+
+      // Zoom to the largest ring
+      view.goTo({ target: polys[0].geometry, padding: { top:40,right:40,bottom:40,left:40 } }, { duration: 800 });
+
+    } catch(err) {
+      setLoading(false);
+      statusBadge.textContent = "Click map to place store";
+      console.error(err);
+      showToast("Error: " + (err.message || err));
+    }
+  }
+
+  // ── Population estimate ─────────────────────────────────────
+  async function estimatePopulation(polygon) {
+    try {
+      const params = new URLSearchParams({
+        f: "json",
+        geometry: JSON.stringify(polygon.toJSON()),
+        geometryType: "esriGeometryPolygon",
+        spatialRel: "esriSpatialRelIntersects",
+        outFields: "TOTPOP_CY",
+        returnGeometry: false,
+        inSR: polygon.spatialReference ? polygon.spatialReference.wkid : 3857
+      });
+      const resp = await fetch(POP_URL + "/query?" + params);
+      const data = await resp.json();
+      if (data.features && data.features.length > 0) {
+        return data.features.reduce((s,f) => s + (f.attributes.TOTPOP_CY || 0), 0);
+      }
+    } catch(_) {}
+    return Math.abs(geometryEngine.geodesicArea(polygon, "square-kilometers")) * 36;
+  }
+
+  // ── Overlap calculation ─────────────────────────────────────
+  function computeOverlap(targetStore, targetRing) {
+    const otherRings = stores
+      .filter(s => s.storeId !== targetStore.storeId)
+      .flatMap(s => s.rings.map(r => r.ring));
+
+    if (otherRings.length === 0) return { overlapPop: 0, overlapPct: 0 };
+
+    let unionOthers = otherRings[0];
+    for (let i = 1; i < otherRings.length; i++) {
+      unionOthers = geometryEngine.union([unionOthers, otherRings[i]]);
+    }
+
+    const intersection = geometryEngine.intersect(targetRing.ring, unionOthers);
+    if (!intersection) return { overlapPop: 0, overlapPct: 0 };
+
+    const tA = Math.abs(geometryEngine.geodesicArea(targetRing.ring, "square-kilometers"));
+    const iA = Math.abs(geometryEngine.geodesicArea(intersection, "square-kilometers"));
+    const overlapPct = tA > 0 ? (iA / tA) * 100 : 0;
+    const overlapPop = Math.round((targetRing.population || 0) * (overlapPct / 100));
+    return { overlapPop, overlapPct };
+  }
+
+  // ── Stores tab render ───────────────────────────────────────
+  function renderStoreList() {
+    const total = stores.reduce((n,s) => n + s.rings.length, 0);
+    storeCountEl.textContent = stores.length;
+    ringCountEl.textContent  = total;
+    storeEmptyEl.style.display = stores.length ? "none" : "block";
+    storeListEl.innerHTML = "";
+
+    stores.forEach(store => {
+      const el = document.createElement("div");
+      el.className = "store-item";
+      el.dataset.storeId = store.storeId;
+
+      const ringChipsHtml = store.rings
+        .sort((a,b) => a.minutes - b.minutes)
+        .map(r => `
+          <span class="ring-chip ${r.visible ? "" : "hidden-ring"}"
+                data-ring-id="${r.ringId}"
+                style="color:${hex(store.color)};border-color:${hex(store.color)};">
+            ${r.minutes}min
+          </span>`).join("");
+
+      el.innerHTML = `
+        <div class="store-color-block" style="background:${rgb(store.color)};"></div>
+        <div class="store-meta-block">
+          <div class="store-name">${store.name}</div>
+          <div class="ring-chips">${ringChipsHtml}</div>
+          <div class="store-sub">Lat ${store.point.latitude.toFixed(3)}, Lng ${store.point.longitude.toFixed(3)}</div>
+        </div>`;
+
+      // Click ring chip = toggle visibility
+      el.querySelectorAll(".ring-chip").forEach(chip => {
+        chip.addEventListener("click", e => {
+          e.stopPropagation();
+          const rid = chip.dataset.ringId;
+          toggleRingVisibility(store.storeId, rid);
+        });
+      });
+
+      // Click row = zoom to store
+      el.addEventListener("click", () => {
+        view.goTo({ target: store.point, zoom: 11 }, { duration: 700 });
+      });
+
+      storeListEl.appendChild(el);
+    });
+  }
+
+  function toggleRingVisibility(storeId, ringId) {
+    const store = stores.find(s => s.storeId === storeId);
+    if (!store) return;
+    const ring = store.rings.find(r => r.ringId === ringId);
+    if (!ring) return;
+    ring.visible = !ring.visible;
+    ring.polygonGraphic.visible = ring.visible;
+    renderStoreList();
+    renderReport();
+  }
+
+  // ── Report filter chips ─────────────────────────────────────
+  function rebuildFilterTimeChips() {
+    const allMinutes = [...new Set(stores.flatMap(s => s.rings.map(r => r.minutes)))].sort((a,b)=>a-b);
+    filterTimesEl.innerHTML = "";
+    allMinutes.forEach(m => {
+      const chip = document.createElement("span");
+      chip.className = "ft-chip" + (filterMinutes.size === 0 || filterMinutes.has(m) ? " on" : "");
+      chip.textContent = m + " min";
+      chip.dataset.minutes = m;
+      chip.addEventListener("click", () => {
+        if (filterMinutes.has(m)) filterMinutes.delete(m);
+        else filterMinutes.add(m);
+        // if nothing selected, treat as "all"
+        renderReport();
+        chip.classList.toggle("on", filterMinutes.size === 0 || filterMinutes.has(m));
+        // re-render all chips to sync
+        rebuildFilterTimeChips();
+      });
+      filterTimesEl.appendChild(chip);
+    });
+  }
+
+  // ── Report table ────────────────────────────────────────────
+  function buildFlatRows() {
+    const rows = [];
+    stores.forEach(store => {
+      store.rings.forEach(ring => {
+        if (!ring.visible) return;
+        const { overlapPop, overlapPct } = computeOverlap(store, ring);
+        const uniquePop = Math.max(0, (ring.population || 0) - overlapPop);
+        const areaSqKm  = Math.abs(geometryEngine.geodesicArea(ring.ring, "square-kilometers"));
+        rows.push({
+          storeId:    store.storeId,
+          ringId:     ring.ringId,
+          color:      store.color,
+          storeName:  store.name,
+          minutes:    ring.minutes,
+          population: ring.population || 0,
+          uniquePop,
+          overlapPop,
+          overlapPct,
+          areaSqKm
+        });
+      });
+    });
+    return rows;
+  }
+
+  function filterRows(rows) {
+    return rows.filter(r => {
+      const nameMatch = !filterStore || r.storeName.toLowerCase().includes(filterStore.toLowerCase());
+      const timeMatch = filterMinutes.size === 0 || filterMinutes.has(r.minutes);
+      return nameMatch && timeMatch;
+    });
+  }
+
+  function sortRows(rows) {
+    return [...rows].sort((a, b) => {
+      const av = a[sortCol], bv = b[sortCol];
+      if (typeof av === "string") return sortDir * av.localeCompare(bv);
+      return sortDir * (av - bv);
+    });
+  }
+
+  function syncMapVisibility() {
+    stores.forEach(store => {
+      const passesName = !filterStore || store.name.toLowerCase().includes(filterStore.toLowerCase());
+      let storeVisible = false;
+      store.rings.forEach(ring => {
+        const show = ring.visible
+          && passesName
+          && (filterMinutes.size === 0 || filterMinutes.has(ring.minutes));
+        ring.polygonGraphic.visible = show;
+        if (show) storeVisible = true;
+      });
+      store.pointGraphic.visible = storeVisible;
+    });
+  }
+
+  function renderReport() {
+    syncMapVisibility();
+    const allRows  = buildFlatRows();
+    const filtered = sortRows(filterRows(allRows));
+
+    visibleCount.textContent = filtered.length + " row" + (filtered.length !== 1 ? "s" : "");
+
+    if (allRows.length === 0) {
+      reportEmpty.style.display = "block";
+      reportTable.style.display = "none";
+      return;
+    }
+    reportEmpty.style.display = "none";
+    reportTable.style.display = "table";
+
+    reportBody.innerHTML = "";
+    filtered.forEach(row => {
+      const isActive = row.ringId === selectedRingId;
+      const pctClass = row.overlapPct > 50 ? "warn" : "ok";
+      const barW     = Math.min(100, Math.round(row.overlapPct));
+      const barColor = row.overlapPct > 50 ? "#ffa726" : "#66bb6a";
+
+      const tr = document.createElement("tr");
+      tr.className = isActive ? "active-row" : "";
+      tr.dataset.ringId = row.ringId;
+      tr.dataset.storeId = row.storeId;
+      tr.innerHTML = `
+        <td>
+          <span class="swatch" style="background:${rgb(row.color)};"></span>${row.storeName}
+        </td>
+        <td class="center">${row.minutes}</td>
+        <td class="num">${fmtNum(row.population)}</td>
+        <td class="num">${fmtNum(row.uniquePop)}</td>
+        <td class="num">${fmtNum(row.overlapPop)}</td>
+        <td>
+          <div class="pct-bar-wrap">
+            <div class="pct-bar" style="width:${barW}px;background:${barColor};"></div>
+            <span class="pct-val ${pctClass}">${fmtPct(row.overlapPct)}</span>
+          </div>
+        </td>
+        <td class="num">${Math.round(row.areaSqKm).toLocaleString()}</td>`;
+
+      tr.addEventListener("click", () => {
+        selectedRingId = row.ringId;
+        const store = stores.find(s => s.storeId === row.storeId);
+        const ring  = store && store.rings.find(r => r.ringId === row.ringId);
+        if (ring) view.goTo({ target: ring.ring, padding:{top:40,right:40,bottom:40,left:40} }, { duration: 700 });
+        renderReport();
+      });
+
+      reportBody.appendChild(tr);
+    });
+  }
+
+  // ── Sort headers ────────────────────────────────────────────
+  document.querySelectorAll("#report-table thead th[data-col]").forEach(th => {
+    th.addEventListener("click", () => {
+      const col = th.dataset.col;
+      if (sortCol === col) sortDir *= -1;
+      else { sortCol = col; sortDir = 1; }
+
+      document.querySelectorAll("#report-table thead th").forEach(h => h.classList.remove("sort-asc","sort-desc"));
+      th.classList.add(sortDir === 1 ? "sort-asc" : "sort-desc");
+      renderReport();
+    });
+  });
+
+  // ── Store name filter ───────────────────────────────────────
+  filterStoreEl.addEventListener("input", () => {
+    filterStore = filterStoreEl.value;
+    renderReport();
+  });
+
+  document.getElementById("btn-reset-filter").addEventListener("click", () => {
+    filterStore = "";
+    filterMinutes.clear();
+    filterStoreEl.value = "";
+    rebuildFilterTimeChips();
+    renderReport();
+  });
+
+  // ── Clear all ───────────────────────────────────────────────
+  btnClear.addEventListener("click", () => {
+    if (!confirm("Remove all stores and service areas?")) return;
+    stores = [];
+    selectedRingId = null;
+    pointLayer.removeAll();
+    polygonLayer.removeAll();
+    filterMinutes.clear();
+    renderStoreList();
+    rebuildFilterTimeChips();
+    renderReport();
+    btnClear.disabled = true;
+    statusBadge.textContent = "Click map to place store";
+  });
+
+  // ── Ready ───────────────────────────────────────────────────
+  view.when(() => {
+    buildDtChips();
+    showToast("Ready — click the map to place a store", "info", 4000);
+  });
+});
+</script>
+</body>
+</html>
